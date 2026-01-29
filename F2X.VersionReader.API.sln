@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36811.4 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "F2X.VersionReader.API", "F2X.VersionReader.API\F2X.VersionReader.API.csproj", "{FD4E3C0A-E163-4D6F-9B44-026266BED2DF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FD4E3C0A-E163-4D6F-9B44-026266BED2DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD4E3C0A-E163-4D6F-9B44-026266BED2DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD4E3C0A-E163-4D6F-9B44-026266BED2DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD4E3C0A-E163-4D6F-9B44-026266BED2DF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {AACD03F9-FC94-48EB-BC0D-D674190752B2}
+	EndGlobalSection
+EndGlobal
