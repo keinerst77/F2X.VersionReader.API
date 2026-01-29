@@ -7,7 +7,6 @@ namespace F2X.VersionReader.API.Services
 {
     /// <summary>
     /// Servicio para leer versiones y metadatos de archivos ejecutables (local y remoto)
-    /// VERSIÓN FINAL CORREGIDA: Replica EXACTAMENTE el comportamiento de Windows Propiedades > Detalles
     /// </summary>
     public class FileVersionService
     {
@@ -19,17 +18,7 @@ namespace F2X.VersionReader.API.Services
         }
 
         /// <summary>
-        /// Formatea el tamaño del archivo EXACTAMENTE como Windows lo muestra en Propiedades > Detalles
-        /// 
-        /// ALGORITMO EXACTO DE WINDOWS (pestaña Detalles):
-        /// 1. Para archivos < 100 KB: Muestra con decimales (0.0#)
-        /// 2. Para archivos >= 100 KB: TRUNCA (Math.Floor) - NO redondea
-        /// 
-        /// Ejemplos CORREGIDOS:
-        /// - 362,496 bytes = 354.0 KB → muestra "354 KB"
-        /// - 377,856 bytes = 368.90625 KB → trunca a "368 KB" (NO 369, NO 370)
-        /// - 14,336 bytes = 14.0 KB → muestra "14,0 KB"
-        /// - 143,360 bytes = 140.0 KB → muestra "140 KB"
+        /// Formatea el tamaño del archivo exactamente como Windows lo muestra en Propiedades > Detalles
         /// </summary>
         private string FormatFileSizeWindows(long bytes)
         {
@@ -44,12 +33,10 @@ namespace F2X.VersionReader.API.Services
 
                 if (kb < 100)
                 {
-                    // Archivos pequeños (< 100 KB): mostrar con decimales
                     return $"{kb:0.0#} KB";
                 }
                 else
                 {
-                    // Archivos >= 100 KB: Windows usa TRUNCAMIENTO (Math.Floor)
                     long kbTruncated = (long)Math.Floor(kb);
                     return $"{kbTruncated} KB";
                 }
@@ -67,7 +54,7 @@ namespace F2X.VersionReader.API.Services
         }
 
         /// <summary>
-        /// Escanea un directorio LOCAL y retorna información de todos los archivos .exe
+        /// Escanea un directorio local y retorna información de todos los archivos .exe
         /// </summary>
         public async Task<ScanResponse> ScanDirectoryAsync(ScanRequest request)
         {
@@ -208,7 +195,7 @@ namespace F2X.VersionReader.API.Services
                             try {{
                                 $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName)
                                 
-                                # Calcular tamaño EXACTAMENTE como Windows lo muestra
+                                # Calcular tamaño exacto como Windows lo muestra
                                 $sizeBytes = $file.Length
                                 $sizeDisplay = """"
                                 
