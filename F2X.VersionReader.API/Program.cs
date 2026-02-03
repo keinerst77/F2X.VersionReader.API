@@ -1,9 +1,15 @@
 ﻿using F2X.VersionReader.API.Services;
+
 var builder = WebApplication.CreateBuilder(args);
+
 // Agregar servicios al contenedor
 builder.Services.AddControllers();
+
 // Registrar servicios personalizados
 builder.Services.AddScoped<FileVersionService>();
+builder.Services.AddScoped<PowerShellRemoteValidationService>();
+builder.Services.AddScoped<MultiEquipoScanService>(); // ⭐ NUEVO SERVICIO
+
 // Configurar CORS para permitir peticiones desde el frontend
 builder.Services.AddCors(options =>
 {
@@ -21,21 +27,26 @@ builder.Services.AddCors(options =>
         .AllowCredentials();
     });
 });
+
 // Configurar logging
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
-builder.Services.AddScoped<PowerShellRemoteValidationService>();
+
 var app = builder.Build();
+
 // IMPORTANTE: CORS debe ir antes de Authorization
 app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+
 // Mensaje de inicio
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("🚀 F2X Version Reader API iniciada");
 logger.LogInformation("🔍 Health check: https://localhost:7000/api/versionscanner/health");
-logger.LogInformation("🔍 Endpoint de escaneo: https://localhost:7000/api/versionscanner/scan");
+logger.LogInformation("🔍 Escaneo simple: https://localhost:7000/api/versionscanner/scan");
+logger.LogInformation("🌐 Escaneo multi-equipo: https://localhost:7000/api/multiequiposcan/scan");
 logger.LogInformation("✅ Backend listo para recibir peticiones del frontend");
+
 app.Run();

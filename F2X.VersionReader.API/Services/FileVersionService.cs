@@ -44,7 +44,6 @@ namespace F2X.VersionReader.API.Services
 
         /// <summary>
         /// Formatea el tamaño del archivo EXACTAMENTE como Windows lo muestra
-        /// CRÍTICO: Windows TRUNCA los decimales, NO los redondea
         /// </summary>
         private string FormatFileSizeWindows(long bytes)
         {
@@ -274,7 +273,7 @@ namespace F2X.VersionReader.API.Services
 
                         string recurseValue = includeSubdirectories ? "$true" : "$false";
 
-                        // Script PowerShell con TRUNCAMIENTO exacto (construye string manualmente)
+                        // Script PowerShell con truncamiento exacto
                         string script = $@"
                         $files = Get-ChildItem -Path '{rutaRemota}' -Filter '{searchPattern}' -Recurse:{recurseValue} -File -ErrorAction SilentlyContinue
 
