@@ -26,7 +26,7 @@ namespace F2X.VersionReader.API.Models
         public string Password { get; set; } = string.Empty;
 
         /// <summary>
-        /// Ruta del directorio a escanear en el equipo remoto (ej: "C:\\Versiones\\CCO")
+        /// Ruta del directorio a escanear en el equipo remoto
         /// </summary>
         [Required(ErrorMessage = "La ruta remota es requerida")]
         public string RutaRemota { get; set; } = string.Empty;

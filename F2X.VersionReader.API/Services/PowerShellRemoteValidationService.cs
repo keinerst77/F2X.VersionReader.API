@@ -54,7 +54,7 @@ namespace F2X.VersionReader.API.Services
                     credential
                 );
 
-                connectionInfo.OperationTimeout = 10000; // 10 segundos
+                connectionInfo.OperationTimeout = 10000;
                 connectionInfo.OpenTimeout = 10000;
 
                 // Conectar y ejecutar
@@ -300,6 +300,269 @@ namespace F2X.VersionReader.API.Services
                 resultado.Success = false;
                 resultado.ErrorMessage = ex.Message;
                 _logger.LogError(ex, "❌ Error al ejecutar script");
+            }
+
+            return resultado;
+
+
+        }
+
+
+        /// <summary>
+        /// Validar si un directorio existe en el equipo remoto
+        /// </summary>
+        public async Task<RemoteCommandResult> ValidarDirectorioRemoto(
+            string ipEquipo,
+            string usuario,
+            string password,
+            string rutaDirectorio)
+        {
+            var resultado = new RemoteCommandResult
+            {
+                IpEquipo = ipEquipo,
+                Comando = $"Test-Path '{rutaDirectorio}'"
+            };
+
+            try
+            {
+                _logger.LogInformation("═══════════════════════════════════════════════");
+                _logger.LogInformation("🔍 VALIDACIÓN DE DIRECTORIO REMOTO");
+                _logger.LogInformation("═══════════════════════════════════════════════");
+                _logger.LogInformation("📍 Equipo: {IP}", ipEquipo);
+                _logger.LogInformation("📁 Ruta: {Ruta}", rutaDirectorio);
+                _logger.LogInformation("");
+
+                var securePassword = new System.Security.SecureString();
+                foreach (char c in password)
+                    securePassword.AppendChar(c);
+
+                var credential = new PSCredential(usuario, securePassword);
+
+                var connectionInfo = new WSManConnectionInfo(
+                    new Uri($"http://{ipEquipo}:5985/wsman"),
+                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
+                    credential
+                );
+
+                connectionInfo.OperationTimeout = 10000;
+                connectionInfo.OpenTimeout = 10000;
+
+                using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
+                {
+                    _logger.LogInformation("⏳ Estableciendo conexión...");
+                    runspace.Open();
+                    _logger.LogInformation("✅ Conexión establecida");
+
+                    using (PowerShell ps = PowerShell.Create())
+                    {
+                        ps.Runspace = runspace;
+
+                        // Script para validar si el directorio existe
+                        string script = $@"
+                    $exists = Test-Path -Path '{rutaDirectorio}' -PathType Container
+                    
+                    if ($exists) {{
+                        $itemCount = (Get-ChildItem -Path '{rutaDirectorio}' -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+                        
+                        return @{{
+                            Exists = $true
+                            Path = '{rutaDirectorio}'
+                            ExeCount = $itemCount
+                        }} | ConvertTo-Json
+                    }} else {{
+                        return @{{
+                            Exists = $false
+                            Path = '{rutaDirectorio}'
+                            ExeCount = 0
+                        }} | ConvertTo-Json
+                    }}
+                ";
+
+                        ps.AddScript(script);
+
+                        _logger.LogInformation("⏳ Validando directorio...");
+                        var resultados = await Task.Run(() => ps.Invoke());
+
+                        if (ps.HadErrors)
+                        {
+                            var errores = new List<string>();
+                            foreach (var error in ps.Streams.Error)
+                            {
+                                errores.Add(error.ToString());
+                                _logger.LogError("❌ Error: {Error}", error);
+                            }
+
+                            resultado.Success = false;
+                            resultado.Output = string.Join("\n", errores);
+                            resultado.ErrorMessage = "Error al validar directorio";
+                        }
+                        else
+                        {
+                            var output = resultados.FirstOrDefault()?.ToString() ?? "";
+
+                            resultado.Success = true;
+                            resultado.Output = output;
+
+                            // Intentar parsear el JSON para determinar si existe
+                            try
+                            {
+                                var jsonDoc = System.Text.Json.JsonDocument.Parse(output);
+                                var exists = jsonDoc.RootElement.GetProperty("Exists").GetBoolean();
+                                var exeCount = jsonDoc.RootElement.GetProperty("ExeCount").GetInt32();
+
+                                if (exists)
+                                {
+                                    _logger.LogInformation("✅ Directorio existe");
+                                    _logger.LogInformation("📋 Archivos .exe encontrados: {Count}", exeCount);
+                                    resultado.Sugerencias.Add($"✅ El directorio existe y contiene {exeCount} archivo(s) .exe");
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("⚠️ Directorio no existe");
+                                    resultado.Sugerencias.Add("⚠️ El directorio no existe en el equipo remoto");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "No se pudo parsear la respuesta JSON");
+                            }
+                        }
+                    }
+                }
+
+                _logger.LogInformation("═══════════════════════════════════════════════");
+                _logger.LogInformation("");
+            }
+            catch (PSRemotingTransportException ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = "Error de autenticación o conexión";
+                resultado.Output = ex.Message;
+                _logger.LogError(ex, "❌ Error de conexión remota");
+
+                resultado.Sugerencias.Add("• Verificar usuario y contraseña");
+                resultado.Sugerencias.Add("• Verificar que WinRM está habilitado");
+            }
+            catch (Exception ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = $"Error inesperado: {ex.GetType().Name}";
+                resultado.Output = ex.Message;
+                _logger.LogError(ex, "❌ Error inesperado");
+            }
+
+            return resultado;
+        }
+
+        /// <summary>
+        /// Buscar directorio por nombre en ubicaciones comunes
+        /// </summary>
+        public async Task<RemoteCommandResult> BuscarDirectorioPorNombre(
+            string ipEquipo,
+            string usuario,
+            string password,
+            string nombreCarpeta)
+        {
+            var resultado = new RemoteCommandResult
+            {
+                IpEquipo = ipEquipo,
+                Comando = $"Buscar carpeta: {nombreCarpeta}"
+            };
+
+            try
+            {
+                _logger.LogInformation("🔍 Buscando carpeta '{Nombre}' en equipo remoto: {IP}", nombreCarpeta, ipEquipo);
+
+                var securePassword = new System.Security.SecureString();
+                foreach (char c in password)
+                    securePassword.AppendChar(c);
+
+                var credential = new PSCredential(usuario, securePassword);
+
+                var connectionInfo = new WSManConnectionInfo(
+                    new Uri($"http://{ipEquipo}:5985/wsman"),
+                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
+                    credential
+                );
+
+                connectionInfo.OperationTimeout = 30000; // 30 segundos para búsqueda
+                connectionInfo.OpenTimeout = 10000;
+
+                using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
+                {
+                    runspace.Open();
+
+                    using (PowerShell ps = PowerShell.Create())
+                    {
+                        ps.Runspace = runspace;
+
+                        // Script para buscar en ubicaciones comunes
+                        string script = $@"
+                    $folderName = '{nombreCarpeta}'
+                    $searchPaths = @(
+                        ""$env:USERPROFILE\Desktop"",
+                        ""$env:USERPROFILE\Documents"",
+                        ""$env:USERPROFILE\Downloads"",
+                        ""C:\"",
+                        ""D:\""
+                    )
+
+                    $found = $null
+                    foreach ($basePath in $searchPaths) {{
+                        if (Test-Path $basePath) {{
+                            $fullPath = Join-Path $basePath $folderName
+                            if (Test-Path -Path $fullPath -PathType Container) {{
+                                $itemCount = (Get-ChildItem -Path $fullPath -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+                                $found = @{{
+                                    Exists = $true
+                                    Path = $fullPath
+                                    ExeCount = $itemCount
+                                    SearchedIn = $basePath
+                                }}
+                                break
+                            }}
+                        }}
+                    }}
+
+                    if ($found) {{
+                        return $found | ConvertTo-Json
+                    }} else {{
+                        return @{{
+                            Exists = $false
+                            Path = $folderName
+                            ExeCount = 0
+                            SearchedPaths = $searchPaths -join '; '
+                        }} | ConvertTo-Json
+                    }}
+                ";
+
+                        ps.AddScript(script);
+
+                        var resultados = await Task.Run(() => ps.Invoke());
+
+                        if (ps.HadErrors)
+                        {
+                            resultado.Success = false;
+                            var errores = ps.Streams.Error.Select(e => e.ToString()).ToList();
+                            resultado.Output = string.Join("\n", errores);
+                            resultado.ErrorMessage = "Error al buscar directorio";
+                        }
+                        else
+                        {
+                            var output = resultados.FirstOrDefault()?.ToString() ?? "";
+                            resultado.Success = true;
+                            resultado.Output = output;
+
+                            _logger.LogInformation("✅ Búsqueda completada: {Output}", output);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "❌ Error al buscar directorio remoto por nombre");
             }
 
             return resultado;

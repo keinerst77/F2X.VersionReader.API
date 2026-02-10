@@ -1,32 +1,10 @@
 ﻿using System.Diagnostics;
-using System.Globalization;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using F2X.VersionReader.API.Models;
-using System.Runtime.InteropServices;
-using System.Text;
-
 
 namespace F2X.VersionReader.API.Services
 {
-
-    public static class WindowsSizeFormatter
-    {
-        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
-        private static extern long StrFormatByteSizeW(
-            long fileSize,
-            StringBuilder buffer,
-            int bufferSize
-        );
-
-        public static string Format(long bytes)
-        {
-            StringBuilder sb = new StringBuilder(32);
-            StrFormatByteSizeW(bytes, sb, sb.Capacity);
-            return sb.ToString();
-        }
-    }
-
     /// <summary>
     /// Servicio para leer versiones y metadatos de archivos ejecutables (local y remoto)
     /// </summary>
@@ -34,117 +12,136 @@ namespace F2X.VersionReader.API.Services
     {
         private readonly ILogger<FileVersionService> _logger;
 
-        // Cultura española para formato de decimales con COMA
-        private static readonly CultureInfo SpanishCulture = new CultureInfo("es-ES");
-
         public FileVersionService(ILogger<FileVersionService> logger)
         {
             _logger = logger;
         }
 
         /// <summary>
-        /// Formatea el tamaño del archivo EXACTAMENTE como Windows lo muestra
+        /// Formatea el tamaño del archivo exactamente como Windows lo muestra en Propiedades
         /// </summary>
         private string FormatFileSizeWindows(long bytes)
         {
-            if (bytes < 1024) // < 1 KB
+            if (bytes < 1024)
             {
-                return $"{bytes} Bytes";
+                return $"{bytes} bytes";
             }
-            else if (bytes < 1048576) // < 1 MB
+            else if (bytes < 1048576) 
             {
+                // Calcular KB
                 double kb = (double)bytes / 1024.0;
 
                 if (kb < 10)
                 {
-                    // < 10 KB: 2 decimales con coma (truncado)
-                    long kbInt = (long)Math.Truncate(kb);
-                    long kbDec = (long)Math.Truncate((kb - kbInt) * 100.0);
-                    return $"{kbInt},{kbDec:D2} KB";
+                    // Archivos < 10 KB: mostrar con 2 decimales usando redondeo normal
+                    return $"{kb:0.00} KB";
                 }
                 else if (kb < 100)
                 {
-                    // 10-99 KB: 1 decimal con coma (truncado)
-                    long kbInt = (long)Math.Truncate(kb);
-                    long kbDec = (long)Math.Truncate((kb - kbInt) * 10.0);
-                    return $"{kbInt},{kbDec} KB";
+                    // Archivos 10-99 KB: mostrar con 1 decimal usando redondeo normal
+                    return $"{kb:0.0} KB";
                 }
                 else
                 {
-                    // >= 100 KB: sin decimales
-                    long kbTruncated = (long)Math.Truncate(kb);
+                    // Archivos >= 100 KB: usar TRUNCAMIENTO (Floor), NO redondeo
+                    long kbTruncated = (long)Math.Floor(kb);
                     return $"{kbTruncated} KB";
                 }
             }
-            else if (bytes < 1073741824) // < 1 GB
+            else if (bytes < 1073741824) // Menos de 1 GB
             {
+                // usar truncamiento con 1 decimal
                 double mb = (double)bytes / 1048576.0;
-
-                if (mb >= 100)
-                {
-                    // >= 100 MB: sin decimales
-                    long mbTruncated = (long)Math.Truncate(mb);
-                    return $"{mbTruncated} MB";
-                }
-                else if (mb < 10)
-                {
-                    // Construir el string manualmente
-                    long mbInt = (long)Math.Truncate(mb);
-                    long mbDec = (long)Math.Truncate((mb - mbInt) * 100.0);
-
-                    _logger.LogDebug("FormatSize: {Bytes} bytes → {MB} MB → Int: {Int} Dec: {Dec}",
-                        bytes, mb, mbInt, mbDec);
-
-                    return $"{mbInt},{mbDec:D2} MB";
-                }
-                else
-                {
-                    // 10-99 MB: 1 decimal con coma (truncado)
-                    long mbInt = (long)Math.Truncate(mb);
-                    long mbDec = (long)Math.Truncate((mb - mbInt) * 10.0);
-
-                    if (mbDec == 0)
-                    {
-                        return $"{mbInt} MB";
-                    }
-                    else
-                    {
-                        return $"{mbInt},{mbDec} MB";
-                    }
-                }
+                double mbTruncated = Math.Floor(mb * 10.0) / 10.0;
+                return $"{mbTruncated:0.0} MB";
             }
-            else // >= 1 GB
+            else
             {
+                // usar truncamiento con 2 decimales
                 double gb = (double)bytes / 1073741824.0;
-
-                if (gb >= 100)
-                {
-                    long gbTruncated = (long)Math.Truncate(gb);
-                    return $"{gbTruncated} GB";
-                }
-                else if (gb < 10)
-                {
-                    long gbInt = (long)Math.Truncate(gb);
-                    long gbDec = (long)Math.Truncate((gb - gbInt) * 100.0);
-                    return $"{gbInt},{gbDec:D2} GB";
-                }
-                else
-                {
-                    long gbInt = (long)Math.Truncate(gb);
-                    long gbDec = (long)Math.Truncate((gb - gbInt) * 10.0);
-
-                    if (gbDec == 0)
-                    {
-                        return $"{gbInt} GB";
-                    }
-                    else
-                    {
-                        return $"{gbInt},{gbDec} GB";
-                    }
-                }
+                double gbTruncated = Math.Floor(gb * 100.0) / 100.0;
+                return $"{gbTruncated:0.00} GB";
             }
         }
 
+        /// <summary>
+        /// Normaliza el nombre de una carpeta eliminando timestamps y sufijos
+        /// </summary>
+        private string NormalizarNombreCarpeta(string nombreCarpeta)
+        {
+            // Eliminar timestamp
+            var patron = @"-\d{8}T\d{6}Z-\d+-\d+$";
+            var nombreLimpio = System.Text.RegularExpressions.Regex.Replace(nombreCarpeta, patron, "");
+
+            // Convertir a minúsculas para comparación
+            return nombreLimpio.ToLowerInvariant().Trim();
+        }
+
+        /// <summary>
+        /// Obtiene las carpetas que existen en ambas versiones (Actual y Futura)
+        /// </summary>
+        public List<(string carpetaActual, string carpetaFutura)> ObtenerCarpetasCoincidentes(
+            string rutaVersionActual,
+            string rutaVersionFutura)
+        {
+            var coincidencias = new List<(string, string)>();
+
+            // Obtener subdirectorios de Versión Actual
+            var carpetasActual = Directory.GetDirectories(rutaVersionActual)
+                .Select(path => new {
+                    RutaCompleta = path,
+                    Nombre = Path.GetFileName(path),
+                    NombreNormalizado = NormalizarNombreCarpeta(Path.GetFileName(path) ?? "")
+                })
+                .ToList();
+
+            // Obtener subdirectorios de Versión Futura
+            var carpetasFutura = Directory.GetDirectories(rutaVersionFutura)
+                .Select(path => new {
+                    RutaCompleta = path,
+                    Nombre = Path.GetFileName(path),
+                    NombreNormalizado = NormalizarNombreCarpeta(Path.GetFileName(path) ?? "")
+                })
+                .ToList();
+
+            // Buscar coincidencias
+            foreach (var carpetaActual in carpetasActual)
+            {
+                var carpetaFutura = carpetasFutura
+                    .FirstOrDefault(f => f.NombreNormalizado == carpetaActual.NombreNormalizado);
+
+                if (carpetaFutura != null)
+                {
+                    _logger.LogInformation("✅ Coincidencia encontrada:");
+                    _logger.LogInformation("   Actual:  {Actual}", carpetaActual.Nombre);
+                    _logger.LogInformation("   Futura:  {Futura}", carpetaFutura.Nombre);
+
+                    coincidencias.Add((carpetaActual.RutaCompleta, carpetaFutura.RutaCompleta));
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Carpeta solo en Actual: {Nombre}", carpetaActual.Nombre);
+                }
+            }
+
+            // Verificar carpetas que solo están en Futura
+            foreach (var carpetaFutura in carpetasFutura)
+            {
+                var existe = carpetasActual
+                    .Any(a => a.NombreNormalizado == carpetaFutura.NombreNormalizado);
+
+                if (!existe)
+                {
+                    _logger.LogWarning("⚠️ Carpeta solo en Futura: {Nombre}", carpetaFutura.Nombre);
+                }
+            }
+
+            return coincidencias;
+        }
+
+        /// <summary>
+        /// Escanea un directorio local y retorna información de todos los archivos .exe
+        /// </summary>
         public async Task<ScanResponse> ScanDirectoryAsync(ScanRequest request)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -165,19 +162,41 @@ namespace F2X.VersionReader.API.Services
 
                 _logger.LogInformation("Escaneando directorio LOCAL: {Directory}", request.Directory);
 
-                var searchOption = request.IncludeSubdirectories
-                    ? SearchOption.AllDirectories
-                    : SearchOption.TopDirectoryOnly;
+                // Solo escanear carpetas específicas si están definidas
+                List<string> rutasAEscanear;
 
-                var exeFiles = Directory.GetFiles(
-                    request.Directory,
-                    request.SearchPattern,
-                    searchOption
-                );
+                if (request.CarpetasEspecificas != null && request.CarpetasEspecificas.Any())
+                {
+                    // Escanear solo carpetas específicas
+                    _logger.LogInformation("📁 Escaneando {Count} carpetas específicas", request.CarpetasEspecificas.Count);
+                    rutasAEscanear = request.CarpetasEspecificas;
+                }
+                else
+                {
+                    // Escanear todas las subcarpetas
+                    rutasAEscanear = new List<string> { request.Directory };
+                }
 
-                _logger.LogInformation("Encontrados {Count} archivos", exeFiles.Length);
+                var allFiles = new List<string>();
 
-                var tasks = exeFiles.Select(filePath => Task.Run(() =>
+                foreach (var ruta in rutasAEscanear)
+                {
+                    if (Directory.Exists(ruta))
+                    {
+                        var searchOption = request.IncludeSubdirectories
+                            ? SearchOption.AllDirectories
+                            : SearchOption.TopDirectoryOnly;
+
+                        var files = Directory.GetFiles(ruta, request.SearchPattern, searchOption);
+                        allFiles.AddRange(files);
+
+                        _logger.LogInformation("   📂 {Carpeta}: {Count} archivos", Path.GetFileName(ruta), files.Length);
+                    }
+                }
+
+                _logger.LogInformation("Encontrados {Count} archivos totales", allFiles.Count);
+
+                var tasks = allFiles.Select(filePath => Task.Run(() =>
                     GetFileInfo(filePath, request.Directory)
                 ));
 
@@ -221,6 +240,9 @@ namespace F2X.VersionReader.API.Services
             }
         }
 
+        /// <summary>
+        /// Escanea un directorio REMOTO usando PowerShell Remoting
+        /// </summary>
         public async Task<ScanResponse> ScanDirectoryRemoteAsync(
             string ipEquipo,
             string usuario,
@@ -273,7 +295,6 @@ namespace F2X.VersionReader.API.Services
 
                         string recurseValue = includeSubdirectories ? "$true" : "$false";
 
-                        // Script PowerShell con truncamiento exacto
                         string script = $@"
                         $files = Get-ChildItem -Path '{rutaRemota}' -Filter '{searchPattern}' -Recurse:{recurseValue} -File -ErrorAction SilentlyContinue
 
@@ -282,69 +303,37 @@ namespace F2X.VersionReader.API.Services
                             try {{
                                 $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName)
                                 
+                                # Calcular tamaño EXACTO como Windows
                                 $sizeBytes = $file.Length
                                 $sizeDisplay = """"
                                 
                                 if ($sizeBytes -lt 1024) {{
-                                    $sizeDisplay = ""$sizeBytes Bytes""
+                                    $sizeDisplay = ""$sizeBytes bytes""
                                 }} elseif ($sizeBytes -lt 1048576) {{
                                     # KB
                                     $sizeKB = $sizeBytes / 1024.0
                                     
                                     if ($sizeKB -lt 10) {{
-                                        $kbInt = [Math]::Truncate($sizeKB)
-                                        $kbDec = [Math]::Truncate(($sizeKB - $kbInt) * 100.0)
-                                        $sizeDisplay = ""$kbInt,$($kbDec.ToString('00')) KB""
+                                        # < 10 KB: 2 decimales con redondeo
+                                        $sizeDisplay = ""$($sizeKB.ToString('0.00')) KB""
                                     }} elseif ($sizeKB -lt 100) {{
-                                        $kbInt = [Math]::Truncate($sizeKB)
-                                        $kbDec = [Math]::Truncate(($sizeKB - $kbInt) * 10.0)
-                                        $sizeDisplay = ""$kbInt,$kbDec KB""
+                                        # 10-99 KB: 1 decimal con redondeo
+                                        $sizeDisplay = ""$($sizeKB.ToString('0.0')) KB""
                                     }} else {{
-                                        $kbTruncated = [Math]::Truncate($sizeKB)
-                                        $sizeDisplay = ""$kbTruncated KB""
+                                        # >= 100 KB: TRUNCAR sin decimales
+                                        $sizeKBTruncated = [Math]::Floor($sizeKB)
+                                        $sizeDisplay = ""$sizeKBTruncated KB""
                                     }}
                                 }} elseif ($sizeBytes -lt 1073741824) {{
-                                    # MB
+                                    # MB: truncar a 1 decimal
                                     $sizeMB = $sizeBytes / 1048576.0
-                                    
-                                    if ($sizeMB -ge 100) {{
-                                        $mbTruncated = [Math]::Truncate($sizeMB)
-                                        $sizeDisplay = ""$mbTruncated MB""
-                                    }} elseif ($sizeMB -lt 10) {{
-                                        $mbInt = [Math]::Truncate($sizeMB)
-                                        $mbDec = [Math]::Truncate(($sizeMB - $mbInt) * 100.0)
-                                        $sizeDisplay = ""$mbInt,$($mbDec.ToString('00')) MB""
-                                    }} else {{
-                                        $mbInt = [Math]::Truncate($sizeMB)
-                                        $mbDec = [Math]::Truncate(($sizeMB - $mbInt) * 10.0)
-                                        
-                                        if ($mbDec -eq 0) {{
-                                            $sizeDisplay = ""$mbInt MB""
-                                        }} else {{
-                                            $sizeDisplay = ""$mbInt,$mbDec MB""
-                                        }}
-                                    }}
+                                    $sizeMBTruncated = [Math]::Floor($sizeMB * 10.0) / 10.0
+                                    $sizeDisplay = ""$($sizeMBTruncated.ToString('0.0')) MB""
                                 }} else {{
-                                    # GB
+                                    # GB: truncar a 2 decimales
                                     $sizeGB = $sizeBytes / 1073741824.0
-                                    
-                                    if ($sizeGB -ge 100) {{
-                                        $gbTruncated = [Math]::Truncate($sizeGB)
-                                        $sizeDisplay = ""$gbTruncated GB""
-                                    }} elseif ($sizeGB -lt 10) {{
-                                        $gbInt = [Math]::Truncate($sizeGB)
-                                        $gbDec = [Math]::Truncate(($sizeGB - $gbInt) * 100.0)
-                                        $sizeDisplay = ""$gbInt,$($gbDec.ToString('00')) GB""
-                                    }} else {{
-                                        $gbInt = [Math]::Truncate($sizeGB)
-                                        $gbDec = [Math]::Truncate(($sizeGB - $gbInt) * 10.0)
-                                        
-                                        if ($gbDec -eq 0) {{
-                                            $sizeDisplay = ""$gbInt GB""
-                                        }} else {{
-                                            $sizeDisplay = ""$gbInt,$gbDec GB""
-                                        }}
-                                    }}
+                                    $sizeGBTruncated = [Math]::Floor($sizeGB * 100.0) / 100.0
+                                    $sizeDisplay = ""$($sizeGBTruncated.ToString('0.00')) GB""
                                 }}
                                 
                                 $results += [PSCustomObject]@{{
@@ -391,6 +380,7 @@ namespace F2X.VersionReader.API.Services
                         else
                         {
                             var jsonOutput = resultados.FirstOrDefault()?.ToString() ?? "[]";
+
                             _logger.LogInformation("📋 JSON recibido ({Length} caracteres)", jsonOutput.Length);
 
                             var archivos = ParseRemoteFiles(jsonOutput);
@@ -543,8 +533,7 @@ namespace F2X.VersionReader.API.Services
                 var fileInfo = new FileInfo(filePath);
                 var versionInfo = FileVersionInfo.GetVersionInfo(filePath);
 
-                var sizeDisplay = WindowsSizeFormatter.Format(fileInfo.Length);
-
+                var sizeDisplay = FormatFileSizeWindows(fileInfo.Length);
 
                 _logger.LogInformation("📄 Archivo: {FileName} - Versión: {Version} - Tamaño: {Size}",
                     fileInfo.Name,

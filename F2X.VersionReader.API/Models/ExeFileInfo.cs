@@ -6,7 +6,7 @@
     public class ExeFileInfo
     {
         /// <summary>
-        /// Nombre del archivo (ej: "F2X.API.Peajes.exe")
+        /// Nombre del archivo
         /// </summary>
         public string Name { get; set; } = string.Empty;
 
@@ -26,7 +26,7 @@
         public string FullPath { get; set; } = string.Empty;
 
         /// <summary>
-        /// Versión del archivo (ej: "1.0.4.0")
+        /// Versión del archivo
         /// </summary>
         public string Version { get; set; } = string.Empty;
 
@@ -36,7 +36,7 @@
         public long SizeBytes { get; set; }
 
         /// <summary>
-        /// Tamaño del archivo formateado (ej: "14.5 KB")
+        /// Tamaño del archivo formateado
         /// </summary>
         public string Size { get; set; } = string.Empty;
 
