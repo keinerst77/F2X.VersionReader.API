@@ -18,7 +18,7 @@ namespace F2X.VersionReader.API.Services
         }
 
         /// <summary>
-        /// Formatea el tamaño del archivo exactamente como Windows lo muestra en Propiedades
+        /// Formatea bytes que Windows Explorer
         /// </summary>
         private string FormatFileSizeWindows(long bytes)
         {
@@ -26,42 +26,71 @@ namespace F2X.VersionReader.API.Services
             {
                 return $"{bytes} bytes";
             }
-            else if (bytes < 1048576) 
-            {
-                // Calcular KB
-                double kb = (double)bytes / 1024.0;
 
+            double kb = bytes / 1024d;
+            double mb = bytes / 1048576d;
+            double gb = bytes / 1073741824d;
+
+            // KB
+            if (kb < 1024)
+            {
                 if (kb < 10)
                 {
-                    // Archivos < 10 KB: mostrar con 2 decimales usando redondeo normal
-                    return $"{kb:0.00} KB";
+                    long truncated = (long)(kb * 100);
+                    double result = truncated / 100.0;
+                    return result.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " KB";
                 }
                 else if (kb < 100)
                 {
-                    // Archivos 10-99 KB: mostrar con 1 decimal usando redondeo normal
-                    return $"{kb:0.0} KB";
+                    long truncated = (long)(kb * 10);
+                    double result = truncated / 10.0;
+                    return result.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " KB";
                 }
                 else
                 {
-                    // Archivos >= 100 KB: usar TRUNCAMIENTO (Floor), NO redondeo
-                    long kbTruncated = (long)Math.Floor(kb);
-                    return $"{kbTruncated} KB";
+                    return ((long)kb).ToString(System.Globalization.CultureInfo.InvariantCulture) + " KB";
                 }
             }
-            else if (bytes < 1073741824) // Menos de 1 GB
+
+            // MB
+            if (mb < 1024)
             {
-                // usar truncamiento con 1 decimal
-                double mb = (double)bytes / 1048576.0;
-                double mbTruncated = Math.Floor(mb * 10.0) / 10.0;
-                return $"{mbTruncated:0.0} MB";
+                if (mb < 10)
+                {
+                    double mbTimes100 = mb * 100;
+                    long truncated = (long)Math.Floor(mbTimes100);
+
+                    double remainder = mbTimes100 - truncated;
+                    if (remainder > 0 && remainder < 0.02)
+                    {
+                        truncated = truncated - 1;
+                    }
+
+                    double result = truncated / 100.0;
+                    return result.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " MB";
+                }
+                else
+                {
+                    long mbTruncated = (long)Math.Floor(mb);
+                    double decimalPart = mb - mbTruncated;
+
+                    if (decimalPart < 0.05)
+                    {
+                        return mbTruncated.ToString(System.Globalization.CultureInfo.InvariantCulture) + " MB";
+                    }
+                    else
+                    {
+                        long truncated = (long)(mb * 10);
+                        double result = truncated / 10.0;
+                        return result.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB";
+                    }
+                }
             }
-            else
-            {
-                // usar truncamiento con 2 decimales
-                double gb = (double)bytes / 1073741824.0;
-                double gbTruncated = Math.Floor(gb * 100.0) / 100.0;
-                return $"{gbTruncated:0.00} GB";
-            }
+
+            // GB
+            long truncatedGb = (long)(gb * 100);
+            double resultGb = truncatedGb / 100.0;
+            return resultGb.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " GB";
         }
 
         /// <summary>
@@ -69,11 +98,8 @@ namespace F2X.VersionReader.API.Services
         /// </summary>
         private string NormalizarNombreCarpeta(string nombreCarpeta)
         {
-            // Eliminar timestamp
             var patron = @"-\d{8}T\d{6}Z-\d+-\d+$";
             var nombreLimpio = System.Text.RegularExpressions.Regex.Replace(nombreCarpeta, patron, "");
-
-            // Convertir a minúsculas para comparación
             return nombreLimpio.ToLowerInvariant().Trim();
         }
 
@@ -86,25 +112,24 @@ namespace F2X.VersionReader.API.Services
         {
             var coincidencias = new List<(string, string)>();
 
-            // Obtener subdirectorios de Versión Actual
             var carpetasActual = Directory.GetDirectories(rutaVersionActual)
-                .Select(path => new {
+                .Select(path => new
+                {
                     RutaCompleta = path,
                     Nombre = Path.GetFileName(path),
                     NombreNormalizado = NormalizarNombreCarpeta(Path.GetFileName(path) ?? "")
                 })
                 .ToList();
 
-            // Obtener subdirectorios de Versión Futura
             var carpetasFutura = Directory.GetDirectories(rutaVersionFutura)
-                .Select(path => new {
+                .Select(path => new
+                {
                     RutaCompleta = path,
                     Nombre = Path.GetFileName(path),
                     NombreNormalizado = NormalizarNombreCarpeta(Path.GetFileName(path) ?? "")
                 })
                 .ToList();
 
-            // Buscar coincidencias
             foreach (var carpetaActual in carpetasActual)
             {
                 var carpetaFutura = carpetasFutura
@@ -113,9 +138,8 @@ namespace F2X.VersionReader.API.Services
                 if (carpetaFutura != null)
                 {
                     _logger.LogInformation("✅ Coincidencia encontrada:");
-                    _logger.LogInformation("   Actual:  {Actual}", carpetaActual.Nombre);
-                    _logger.LogInformation("   Futura:  {Futura}", carpetaFutura.Nombre);
-
+                    _logger.LogInformation("   Actual: {Actual}", carpetaActual.Nombre);
+                    _logger.LogInformation("   Futura: {Futura}", carpetaFutura.Nombre);
                     coincidencias.Add((carpetaActual.RutaCompleta, carpetaFutura.RutaCompleta));
                 }
                 else
@@ -124,16 +148,13 @@ namespace F2X.VersionReader.API.Services
                 }
             }
 
-            // Verificar carpetas que solo están en Futura
             foreach (var carpetaFutura in carpetasFutura)
             {
                 var existe = carpetasActual
                     .Any(a => a.NombreNormalizado == carpetaFutura.NombreNormalizado);
 
                 if (!existe)
-                {
                     _logger.LogWarning("⚠️ Carpeta solo en Futura: {Nombre}", carpetaFutura.Nombre);
-                }
             }
 
             return coincidencias;
@@ -162,18 +183,15 @@ namespace F2X.VersionReader.API.Services
 
                 _logger.LogInformation("Escaneando directorio LOCAL: {Directory}", request.Directory);
 
-                // Solo escanear carpetas específicas si están definidas
                 List<string> rutasAEscanear;
 
                 if (request.CarpetasEspecificas != null && request.CarpetasEspecificas.Any())
                 {
-                    // Escanear solo carpetas específicas
                     _logger.LogInformation("📁 Escaneando {Count} carpetas específicas", request.CarpetasEspecificas.Count);
                     rutasAEscanear = request.CarpetasEspecificas;
                 }
                 else
                 {
-                    // Escanear todas las subcarpetas
                     rutasAEscanear = new List<string> { request.Directory };
                 }
 
@@ -190,14 +208,15 @@ namespace F2X.VersionReader.API.Services
                         var files = Directory.GetFiles(ruta, request.SearchPattern, searchOption);
                         allFiles.AddRange(files);
 
-                        _logger.LogInformation("   📂 {Carpeta}: {Count} archivos", Path.GetFileName(ruta), files.Length);
+                        _logger.LogInformation("   📂 {Carpeta}: {Count} archivos",
+                            Path.GetFileName(ruta), files.Length);
                     }
                 }
 
                 _logger.LogInformation("Encontrados {Count} archivos totales", allFiles.Count);
 
-                var tasks = allFiles.Select(filePath => Task.Run(() =>
-                    GetFileInfo(filePath, request.Directory)
+                var tasks = allFiles.Select(filePath =>
+                    Task.Run(() => GetFileInfo(filePath, request.Directory)
                 ));
 
                 var fileInfos = await Task.WhenAll(tasks);
@@ -214,11 +233,8 @@ namespace F2X.VersionReader.API.Services
                 response.ScanTimeMs = stopwatch.ElapsedMilliseconds;
                 response.Message = $"Escaneo completado exitosamente. {response.TotalFiles} archivo(s) encontrado(s)";
 
-                _logger.LogInformation(
-                    "Escaneo completado en {Ms}ms. Total: {Count} archivos",
-                    response.ScanTimeMs,
-                    response.TotalFiles
-                );
+                _logger.LogInformation("Escaneo completado en {Ms}ms. Total: {Count} archivos",
+                    response.ScanTimeMs, response.TotalFiles);
 
                 return response;
             }
@@ -259,14 +275,8 @@ namespace F2X.VersionReader.API.Services
 
             try
             {
-                _logger.LogInformation("═══════════════════════════════════════════════");
-                _logger.LogInformation("🌐 ESCANEO REMOTO");
-                _logger.LogInformation("═══════════════════════════════════════════════");
-                _logger.LogInformation("📍 Equipo: {IP}", ipEquipo);
-                _logger.LogInformation("📁 Ruta: {Ruta}", rutaRemota);
-                _logger.LogInformation("🔍 Patrón: {Pattern}", searchPattern);
-                _logger.LogInformation("📂 Subdirectorios: {Include}", includeSubdirectories);
-                _logger.LogInformation("");
+                _logger.LogInformation("🌐 ESCANEO REMOTO - Equipo: {IP} - Ruta: {Ruta}",
+                    ipEquipo, rutaRemota);
 
                 var securePassword = new System.Security.SecureString();
                 foreach (char c in password)
@@ -285,9 +295,7 @@ namespace F2X.VersionReader.API.Services
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
-                    _logger.LogInformation("⏳ Estableciendo conexión...");
                     runspace.Open();
-                    _logger.LogInformation("✅ Conexión establecida");
 
                     using (PowerShell ps = PowerShell.Create())
                     {
@@ -299,43 +307,70 @@ namespace F2X.VersionReader.API.Services
                         $files = Get-ChildItem -Path '{rutaRemota}' -Filter '{searchPattern}' -Recurse:{recurseValue} -File -ErrorAction SilentlyContinue
 
                         $results = @()
+
                         foreach ($file in $files) {{
                             try {{
                                 $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName)
-                                
-                                # Calcular tamaño EXACTO como Windows
                                 $sizeBytes = $file.Length
                                 $sizeDisplay = """"
-                                
+
                                 if ($sizeBytes -lt 1024) {{
-                                    $sizeDisplay = ""$sizeBytes bytes""
-                                }} elseif ($sizeBytes -lt 1048576) {{
-                                    # KB
-                                    $sizeKB = $sizeBytes / 1024.0
-                                    
-                                    if ($sizeKB -lt 10) {{
-                                        # < 10 KB: 2 decimales con redondeo
-                                        $sizeDisplay = ""$($sizeKB.ToString('0.00')) KB""
-                                    }} elseif ($sizeKB -lt 100) {{
-                                        # 10-99 KB: 1 decimal con redondeo
-                                        $sizeDisplay = ""$($sizeKB.ToString('0.0')) KB""
-                                    }} else {{
-                                        # >= 100 KB: TRUNCAR sin decimales
-                                        $sizeKBTruncated = [Math]::Floor($sizeKB)
-                                        $sizeDisplay = ""$sizeKBTruncated KB""
-                                    }}
-                                }} elseif ($sizeBytes -lt 1073741824) {{
-                                    # MB: truncar a 1 decimal
-                                    $sizeMB = $sizeBytes / 1048576.0
-                                    $sizeMBTruncated = [Math]::Floor($sizeMB * 10.0) / 10.0
-                                    $sizeDisplay = ""$($sizeMBTruncated.ToString('0.0')) MB""
-                                }} else {{
-                                    # GB: truncar a 2 decimales
-                                    $sizeGB = $sizeBytes / 1073741824.0
-                                    $sizeGBTruncated = [Math]::Floor($sizeGB * 100.0) / 100.0
-                                    $sizeDisplay = ""$($sizeGBTruncated.ToString('0.00')) GB""
+                            $sizeDisplay = ""$sizeBytes bytes""
+                        }}
+                        elseif ($sizeBytes -lt 1048576) {{
+                            # KB
+                            $sizeKB = $sizeBytes / 1024.0
+
+                            if ($sizeKB -lt 10) {{
+                                $truncated = [Math]::Floor($sizeKB * 100) / 100
+                                $sizeDisplay = ""$($truncated.ToString('0.00')) KB""
+                            }}
+                            elseif ($sizeKB -lt 100) {{
+                                $truncated = [Math]::Floor($sizeKB * 10) / 10
+                                $sizeDisplay = ""$($truncated.ToString('0.0')) KB""
+                            }}
+                            else {{
+                                $sizeDisplay = ""$([Math]::Floor($sizeKB)) KB""
+                            }}
+                        }}
+                        elseif ($sizeBytes -lt 1073741824) {{
+                            # MB
+                            $sizeMB = $sizeBytes / 1048576.0
+    
+                            if ($sizeMB -lt 10) {{
+                                # Algoritmo especial para MB < 10
+                                $mbTimes100 = $sizeMB * 100
+                                $truncated = [Math]::Floor($mbTimes100)
+                                $remainder = $mbTimes100 - $truncated
+        
+                                if ($remainder -gt 0 -and $remainder -lt 0.02) {{
+                                    $truncated = $truncated - 1
                                 }}
-                                
+        
+                                $result = $truncated / 100.0
+                                $sizeDisplay = ""$($result.ToString('0.00')) MB""
+                            }}
+                            else {{
+                                # Algoritmo para MB >= 10
+                                $mbTruncated = [Math]::Floor($sizeMB)
+                                $decimalPart = $sizeMB - $mbTruncated
+        
+                                if ($decimalPart -lt 0.05) {{
+                                    $sizeDisplay = ""$mbTruncated MB""
+                                }}
+                                else {{
+                                    $truncated = [Math]::Floor($sizeMB * 10) / 10
+                                    $sizeDisplay = ""$($truncated.ToString('0.0')) MB""
+                                }}
+                            }}
+                        }}
+                        else {{
+                            # GB
+                            $sizeGB = $sizeBytes / 1073741824.0
+                            $truncated = [Math]::Floor($sizeGB * 100) / 100
+                            $sizeDisplay = ""$($truncated.ToString('0.00')) GB""
+                        }}
+
                                 $results += [PSCustomObject]@{{
                                     Name = $file.Name
                                     FullPath = $file.FullName
@@ -351,7 +386,8 @@ namespace F2X.VersionReader.API.Services
                                     CompanyName = $versionInfo.CompanyName
                                     ProductName = $versionInfo.ProductName
                                 }}
-                            }} catch {{
+                            }}
+                            catch {{
                                 Write-Warning ""Error procesando archivo: $($file.FullName)""
                             }}
                         }}
@@ -361,18 +397,11 @@ namespace F2X.VersionReader.API.Services
 
                         ps.AddScript(script);
 
-                        _logger.LogInformation("⏳ Ejecutando escaneo remoto...");
                         var resultados = await Task.Run(() => ps.Invoke());
 
                         if (ps.HadErrors)
                         {
-                            var errores = new List<string>();
-                            foreach (var error in ps.Streams.Error)
-                            {
-                                errores.Add(error.ToString());
-                                _logger.LogError("❌ Error: {Error}", error);
-                            }
-
+                            var errores = ps.Streams.Error.Select(e => e.ToString()).ToList();
                             response.Success = false;
                             response.Error = string.Join("\n", errores);
                             response.Message = "Error al ejecutar escaneo remoto";
@@ -380,9 +409,6 @@ namespace F2X.VersionReader.API.Services
                         else
                         {
                             var jsonOutput = resultados.FirstOrDefault()?.ToString() ?? "[]";
-
-                            _logger.LogInformation("📋 JSON recibido ({Length} caracteres)", jsonOutput.Length);
-
                             var archivos = ParseRemoteFiles(jsonOutput);
 
                             response.Files = archivos;
@@ -397,10 +423,6 @@ namespace F2X.VersionReader.API.Services
 
                 stopwatch.Stop();
                 response.ScanTimeMs = stopwatch.ElapsedMilliseconds;
-
-                _logger.LogInformation("⏱️ Tiempo total: {Ms}ms", response.ScanTimeMs);
-                _logger.LogInformation("═══════════════════════════════════════════════");
-                _logger.LogInformation("");
 
                 return response;
             }
@@ -425,9 +447,7 @@ namespace F2X.VersionReader.API.Services
             try
             {
                 if (jsonOutput.Trim() == "[]")
-                {
                     return files;
-                }
 
                 var json = System.Text.Json.JsonDocument.Parse(jsonOutput);
 
@@ -476,8 +496,6 @@ namespace F2X.VersionReader.API.Services
                             Company = company,
                             ProductName = productName
                         });
-
-                        _logger.LogInformation("  ✅ {Name} - v{Version} - {Size}", name, version, sizeDisplay);
                     }
                     catch (Exception ex)
                     {
@@ -487,7 +505,7 @@ namespace F2X.VersionReader.API.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error parseando JSON: {Json}", jsonOutput);
+                _logger.LogError(ex, "❌ Error parseando JSON");
             }
 
             return files;
@@ -496,33 +514,30 @@ namespace F2X.VersionReader.API.Services
         private string GetJsonString(System.Text.Json.JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var prop))
-            {
                 return prop.ValueKind == System.Text.Json.JsonValueKind.String
                     ? prop.GetString() ?? string.Empty
                     : string.Empty;
-            }
+
             return string.Empty;
         }
 
         private int GetJsonInt(System.Text.Json.JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var prop))
-            {
                 return prop.ValueKind == System.Text.Json.JsonValueKind.Number
                     ? prop.GetInt32()
                     : 0;
-            }
+
             return 0;
         }
 
         private long GetJsonLong(System.Text.Json.JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var prop))
-            {
                 return prop.ValueKind == System.Text.Json.JsonValueKind.Number
                     ? prop.GetInt64()
                     : 0L;
-            }
+
             return 0L;
         }
 
@@ -531,18 +546,24 @@ namespace F2X.VersionReader.API.Services
             try
             {
                 var fileInfo = new FileInfo(filePath);
+
+                // DIAGNÓSTICO TEMPORAL
+                if (fileInfo.Name.Contains("Squirrel-Mono"))
+                {
+                    _logger.LogInformation("🔍 DEBUG Squirrel-Mono:");
+                    _logger.LogInformation("   Length: {Length} bytes", fileInfo.Length);
+                    _logger.LogInformation("   Expected: 1856000 bytes");
+                }
                 var versionInfo = FileVersionInfo.GetVersionInfo(filePath);
 
                 var sizeDisplay = FormatFileSizeWindows(fileInfo.Length);
 
-                _logger.LogInformation("📄 Archivo: {FileName} - Versión: {Version} - Tamaño: {Size}",
-                    fileInfo.Name,
-                    $"{versionInfo.FileMajorPart}.{versionInfo.FileMinorPart}.{versionInfo.FileBuildPart}.{versionInfo.FilePrivatePart}",
-                    sizeDisplay);
-
                 var relativePath = Path.GetRelativePath(baseDirectory, filePath);
 
                 var version = $"{versionInfo.FileMajorPart}.{versionInfo.FileMinorPart}.{versionInfo.FileBuildPart}.{versionInfo.FilePrivatePart}";
+
+                _logger.LogInformation("📄 {FileName} - v{Version} - {Size}",
+                    fileInfo.Name, version, sizeDisplay);
 
                 return new ExeFileInfo
                 {
