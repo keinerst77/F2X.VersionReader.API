@@ -17,80 +17,65 @@ namespace F2X.VersionReader.API.Services
             _logger = logger;
         }
 
-        /// <summary>
-        /// Formatea bytes que Windows Explorer
-        /// </summary>
+      
         private string FormatFileSizeWindows(long bytes)
         {
             if (bytes < 1024)
-            {
                 return $"{bytes} bytes";
-            }
 
-            double kb = bytes / 1024d;
-            double mb = bytes / 1048576d;
-            double gb = bytes / 1073741824d;
+            const long KB = 1024L;
+            const long MB = 1024L * 1024L;
+            const long GB = 1024L * 1024L * 1024L;
 
-            // KB
-            if (kb < 1024)
+            
+            long kib = bytes / KB;
+
+            if (bytes < MB)
             {
+                // KB 
+                double kb = (double)bytes / KB;
                 if (kb < 10)
                 {
-                    long truncated = (long)(kb * 100);
-                    double result = truncated / 100.0;
-                    return result.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " KB";
+                    long x100 = (kib * 100L); 
+                   
+                    long num = (bytes * 100L) / KB;
+                    return $"{num / 100},{num % 100:D2} KB";
                 }
-                else if (kb < 100)
+                if (kb < 100)
                 {
-                    long truncated = (long)(kb * 10);
-                    double result = truncated / 10.0;
-                    return result.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " KB";
+                    long num = (bytes * 10L) / KB;
+                    return $"{num / 10},{num % 10} KB";
                 }
-                else
-                {
-                    return ((long)kb).ToString(System.Globalization.CultureInfo.InvariantCulture) + " KB";
-                }
+                return $"{kib} KB";
             }
 
-            // MB
-            if (mb < 1024)
+            if (bytes < GB)
             {
-                if (mb < 10)
-                {
-                    double mbTimes100 = mb * 100;
-                    long truncated = (long)Math.Floor(mbTimes100);
+                // MB
+                long x1 = kib / 1024L;
+                long x10 = (kib * 10L) / 1024L;
+                long x100 = (kib * 100L) / 1024L;
 
-                    double remainder = mbTimes100 - truncated;
-                    if (remainder > 0 && remainder < 0.02)
-                    {
-                        truncated = truncated - 1;
-                    }
-
-                    double result = truncated / 100.0;
-                    return result.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " MB";
-                }
-                else
-                {
-                    long mbTruncated = (long)Math.Floor(mb);
-                    double decimalPart = mb - mbTruncated;
-
-                    if (decimalPart < 0.05)
-                    {
-                        return mbTruncated.ToString(System.Globalization.CultureInfo.InvariantCulture) + " MB";
-                    }
-                    else
-                    {
-                        long truncated = (long)(mb * 10);
-                        double result = truncated / 10.0;
-                        return result.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MB";
-                    }
-                }
+                if (x1 < 10)
+                    return $"{x100 / 100},{x100 % 100:D2} MB";
+                if (x1 < 100)
+                    return $"{x10 / 10},{x10 % 10} MB";
+                return $"{x1} MB";
             }
 
-            // GB
-            long truncatedGb = (long)(gb * 100);
-            double resultGb = truncatedGb / 100.0;
-            return resultGb.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " GB";
+            {
+                // GB 
+                long mib = kib / 1024L;
+                long x1 = mib / 1024L;
+                long x10 = (mib * 10L) / 1024L;
+                long x100 = (mib * 100L) / 1024L;
+
+                if (x1 < 10)
+                    return $"{x100 / 100},{x100 % 100:D2} GB";
+                if (x1 < 100)
+                    return $"{x10 / 10},{x10 % 10} GB";
+                return $"{x1} GB";
+            }
         }
 
         /// <summary>
@@ -303,6 +288,7 @@ namespace F2X.VersionReader.API.Services
 
                         string recurseValue = includeSubdirectories ? "$true" : "$false";
 
+                
                         string script = $@"
                         $files = Get-ChildItem -Path '{rutaRemota}' -Filter '{searchPattern}' -Recurse:{recurseValue} -File -ErrorAction SilentlyContinue
 
@@ -315,61 +301,56 @@ namespace F2X.VersionReader.API.Services
                                 $sizeDisplay = """"
 
                                 if ($sizeBytes -lt 1024) {{
-                            $sizeDisplay = ""$sizeBytes bytes""
-                        }}
-                        elseif ($sizeBytes -lt 1048576) {{
-                            # KB
-                            $sizeKB = $sizeBytes / 1024.0
-
-                            if ($sizeKB -lt 10) {{
-                                $truncated = [Math]::Floor($sizeKB * 100) / 100
-                                $sizeDisplay = ""$($truncated.ToString('0.00')) KB""
-                            }}
-                            elseif ($sizeKB -lt 100) {{
-                                $truncated = [Math]::Floor($sizeKB * 10) / 10
-                                $sizeDisplay = ""$($truncated.ToString('0.0')) KB""
-                            }}
-                            else {{
-                                $sizeDisplay = ""$([Math]::Floor($sizeKB)) KB""
-                            }}
-                        }}
-                        elseif ($sizeBytes -lt 1073741824) {{
-                            # MB
-                            $sizeMB = $sizeBytes / 1048576.0
-    
-                            if ($sizeMB -lt 10) {{
-                                # Algoritmo especial para MB < 10
-                                $mbTimes100 = $sizeMB * 100
-                                $truncated = [Math]::Floor($mbTimes100)
-                                $remainder = $mbTimes100 - $truncated
-        
-                                if ($remainder -gt 0 -and $remainder -lt 0.02) {{
-                                    $truncated = $truncated - 1
+                                    $sizeDisplay = ""$sizeBytes bytes""
                                 }}
-        
-                                $result = $truncated / 100.0
-                                $sizeDisplay = ""$($result.ToString('0.00')) MB""
-                            }}
-                            else {{
-                                # Algoritmo para MB >= 10
-                                $mbTruncated = [Math]::Floor($sizeMB)
-                                $decimalPart = $sizeMB - $mbTruncated
-        
-                                if ($decimalPart -lt 0.05) {{
-                                    $sizeDisplay = ""$mbTruncated MB""
+                                elseif ($sizeBytes -lt 1048576) {{
+                                    # KB range — aritmética entera desde bytes
+                                    $kib = [long]($sizeBytes / 1024)
+                                    if (($sizeBytes / 1024.0) -lt 10) {{
+                                        $num = [long](($sizeBytes * 100) / 1024)
+                                        $sizeDisplay = ""$([Math]::Floor($num / 100)),$($num % 100 | ForEach-Object {{ $_.ToString('D2') }}) KB""
+                                    }}
+                                    elseif (($sizeBytes / 1024.0) -lt 100) {{
+                                        $num = [long](($sizeBytes * 10) / 1024)
+                                        $sizeDisplay = ""$([Math]::Floor($num / 10)),$($num % 10) KB""
+                                    }}
+                                    else {{
+                                        $sizeDisplay = ""$kib KB""
+                                    }}
+                                }}
+                                elseif ($sizeBytes -lt 1073741824) {{
+                                    # MB range — aritmética entera pura desde KiB
+                                    $kib   = [long]($sizeBytes / 1024)
+                                    $x1    = [long]($kib / 1024)
+                                    $x10   = [long](($kib * 10) / 1024)
+                                    $x100  = [long](($kib * 100) / 1024)
+                                    if ($x1 -lt 10) {{
+                                        $sizeDisplay = ""$([Math]::Floor($x100 / 100)),$($x100 % 100 | ForEach-Object {{ $_.ToString('D2') }}) MB""
+                                    }}
+                                    elseif ($x1 -lt 100) {{
+                                        $sizeDisplay = ""$([Math]::Floor($x10 / 10)),$($x10 % 10) MB""
+                                    }}
+                                    else {{
+                                        $sizeDisplay = ""$x1 MB""
+                                    }}
                                 }}
                                 else {{
-                                    $truncated = [Math]::Floor($sizeMB * 10) / 10
-                                    $sizeDisplay = ""$($truncated.ToString('0.0')) MB""
+                                    # GB range — aritmética entera pura desde MiB
+                                    $kib   = [long]($sizeBytes / 1024)
+                                    $mib   = [long]($kib / 1024)
+                                    $x1    = [long]($mib / 1024)
+                                    $x10   = [long](($mib * 10) / 1024)
+                                    $x100  = [long](($mib * 100) / 1024)
+                                    if ($x1 -lt 10) {{
+                                        $sizeDisplay = ""$([Math]::Floor($x100 / 100)),$($x100 % 100 | ForEach-Object {{ $_.ToString('D2') }}) GB""
+                                    }}
+                                    elseif ($x1 -lt 100) {{
+                                        $sizeDisplay = ""$([Math]::Floor($x10 / 10)),$($x10 % 10) GB""
+                                    }}
+                                    else {{
+                                        $sizeDisplay = ""$x1 GB""
+                                    }}
                                 }}
-                            }}
-                        }}
-                        else {{
-                            # GB
-                            $sizeGB = $sizeBytes / 1073741824.0
-                            $truncated = [Math]::Floor($sizeGB * 100) / 100
-                            $sizeDisplay = ""$($truncated.ToString('0.00')) GB""
-                        }}
 
                                 $results += [PSCustomObject]@{{
                                     Name = $file.Name
@@ -546,14 +527,6 @@ namespace F2X.VersionReader.API.Services
             try
             {
                 var fileInfo = new FileInfo(filePath);
-
-                // DIAGNÓSTICO TEMPORAL
-                if (fileInfo.Name.Contains("Squirrel-Mono"))
-                {
-                    _logger.LogInformation("🔍 DEBUG Squirrel-Mono:");
-                    _logger.LogInformation("   Length: {Length} bytes", fileInfo.Length);
-                    _logger.LogInformation("   Expected: 1856000 bytes");
-                }
                 var versionInfo = FileVersionInfo.GetVersionInfo(filePath);
 
                 var sizeDisplay = FormatFileSizeWindows(fileInfo.Length);
