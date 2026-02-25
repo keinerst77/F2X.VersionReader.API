@@ -20,6 +20,7 @@ namespace F2X.VersionReader.API.Controllers
             _logger = logger;
         }
 
+
         /// <summary>
         /// Ejecutar comando simple (hostname)
         /// </summary>
@@ -27,6 +28,17 @@ namespace F2X.VersionReader.API.Controllers
         public async Task<ActionResult<RemoteCommandResult>> TestSimple(
             [FromBody] RemoteTestRequest request)
         {
+            if (string.IsNullOrWhiteSpace(request.IpEquipo) ||
+                string.IsNullOrWhiteSpace(request.Usuario) ||
+                string.IsNullOrWhiteSpace(request.Password))
+            {
+                return BadRequest(new RemoteCommandResult
+                {
+                    Success = false,
+                    ErrorMessage = "IpEquipo, Usuario y Password son requeridos"
+                });
+            }
+
             _logger.LogInformation("Iniciando prueba simple para: {IP}", request.IpEquipo);
 
             var resultado = await _validationService.TestComandoSimple(
@@ -35,14 +47,7 @@ namespace F2X.VersionReader.API.Controllers
                 request.Password
             );
 
-            if (resultado.Success)
-            {
-                return Ok(resultado);
-            }
-            else
-            {
-                return BadRequest(resultado);
-            }
+            return Ok(resultado);
         }
 
         /// <summary>
@@ -72,7 +77,6 @@ namespace F2X.VersionReader.API.Controllers
             {
                 _logger.LogInformation("📝 Intentando registrar Event Log en equipo remoto: {IP}", request.IpEquipo);
 
-                // Script simplificado de PowerShell para escribir en Event Log
                 string script = $@"
                 try {{
                     $securePassword = ConvertTo-SecureString '{request.Password}' -AsPlainText -Force
@@ -83,36 +87,9 @@ namespace F2X.VersionReader.API.Controllers
                             $hostname = $env:COMPUTERNAME
                             $loginTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
                             $remoteUser = $env:USERNAME
-            
-                            # Usar fuente genérica que siempre existe
                             $sourceName = 'Application'
-            
-                            # Mensaje del evento
-                            $message = @'
-                ╔═══════════════════════════════════════════════════════════╗
-                ║          F2X - CONEXIÓN REMOTA ESTABLECIDA               ║
-                ╚═══════════════════════════════════════════════════════════╝
-
-                📅 Fecha y Hora: $loginTime
-                🖥️  Equipo Local: $hostname
-                👤 Usuario Conectado: $remoteUser
-                🔐 Usuario Remoto: {request.Usuario}
-                📡 IP Origen: {request.IpEquipo}
-                🎯 Propósito: Escaneo de versiones de archivos
-
-                ⚙️  Acción: Validación de conexión remota
-                📋 Aplicación: F2X FileComparator v2.1.0
-
-                ℹ️  Esta conexión fue establecida para realizar un escaneo
-                   de archivos .exe y comparación de versiones.
-
-                ═══════════════════════════════════════════════════════════
-                '@
-            
-                            # Escribir en el Event Log
+                            $message = ""F2X - CONEXION REMOTA - $loginTime - Usuario: {request.Usuario}""
                             Write-EventLog -LogName Application -Source $sourceName -EventId 1001 -EntryType Information -Message $message -ErrorAction Stop
-            
-                            # Retornar confirmación
                             return @{{
                                 Success = $true
                                 Hostname = $hostname
@@ -121,7 +98,6 @@ namespace F2X.VersionReader.API.Controllers
                                 Message = 'Event log entry created successfully'
                             }}
                         }} catch {{
-                            # Si falla, retornar error pero sin romper
                             return @{{
                                 Success = $false
                                 Hostname = $env:COMPUTERNAME
@@ -132,7 +108,6 @@ namespace F2X.VersionReader.API.Controllers
     
                     return $result
                 }} catch {{
-                    # Error en la invocación remota
                     return @{{
                         Success = $false
                         Error = $_.Exception.Message
@@ -146,10 +121,7 @@ namespace F2X.VersionReader.API.Controllers
 
                     var results = await Task.Run(() =>
                     {
-                        try
-                        {
-                            return ps.Invoke();
-                        }
+                        try { return ps.Invoke(); }
                         catch (Exception ex)
                         {
                             _logger.LogWarning("⚠️ Error al invocar PowerShell: {Error}", ex.Message);
@@ -161,72 +133,32 @@ namespace F2X.VersionReader.API.Controllers
                     {
                         var errors = ps.Streams.Error.ReadAll();
                         var errorMessage = string.Join("; ", errors.Select(e => e.ToString()));
-
                         _logger.LogWarning("⚠️ Error al registrar Event Log: {Error}", errorMessage);
-
-                        return Ok(new
-                        {
-                            success = false,
-                            errorMessage = errorMessage,
-                            message = "No se pudo registrar el evento, pero la conexión fue exitosa"
-                        });
+                        return Ok(new { success = false, errorMessage, message = "No se pudo registrar el evento, pero la conexión fue exitosa" });
                     }
 
                     var result = results.FirstOrDefault();
-                    if (result != null)
+                    if (result?.BaseObject is Hashtable resultObj)
                     {
-                        var resultObj = result.BaseObject as Hashtable;
-                        if (resultObj != null)
+                        var success = resultObj["Success"] as bool? ?? false;
+                        if (success)
                         {
-                            var success = resultObj["Success"] as bool? ?? false;
-
-                            if (success)
-                            {
-                                _logger.LogInformation("✅ Event Log registrado exitosamente");
-
-                                return Ok(new
-                                {
-                                    success = true,
-                                    message = "Event log registrado exitosamente en el equipo remoto",
-                                    hostname = resultObj["Hostname"]?.ToString(),
-                                    logTime = resultObj["LogTime"]?.ToString(),
-                                    sourceUsed = resultObj["SourceUsed"]?.ToString()
-                                });
-                            }
-                            else
-                            {
-                                _logger.LogWarning("⚠️ No se pudo registrar Event Log: {Error}", resultObj["Error"]?.ToString());
-
-                                return Ok(new
-                                {
-                                    success = false,
-                                    message = "No se pudo registrar el evento, pero la conexión fue exitosa",
-                                    hostname = resultObj["Hostname"]?.ToString(),
-                                    error = resultObj["Error"]?.ToString()
-                                });
-                            }
+                            _logger.LogInformation("✅ Event Log registrado exitosamente");
+                            return Ok(new { success = true, message = "Event log registrado", hostname = resultObj["Hostname"]?.ToString(), logTime = resultObj["LogTime"]?.ToString(), sourceUsed = resultObj["SourceUsed"]?.ToString() });
+                        }
+                        else
+                        {
+                            return Ok(new { success = false, message = "No se pudo registrar el evento, pero la conexión fue exitosa", hostname = resultObj["Hostname"]?.ToString(), error = resultObj["Error"]?.ToString() });
                         }
                     }
 
-                    return Ok(new
-                    {
-                        success = false,
-                        message = "No se recibió respuesta del equipo remoto",
-                        errorMessage = "Sin respuesta"
-                    });
+                    return Ok(new { success = false, message = "No se recibió respuesta del equipo remoto" });
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "⚠️ Error al intentar registrar Event Log (no crítico)");
-
-                // Retornar 200 OK con success=false
-                return Ok(new
-                {
-                    success = false,
-                    errorMessage = ex.Message,
-                    message = "La conexión fue exitosa, pero no se pudo registrar el evento"
-                });
+                return Ok(new { success = false, errorMessage = ex.Message, message = "La conexión fue exitosa, pero no se pudo registrar el evento" });
             }
         }
 
@@ -237,8 +169,7 @@ namespace F2X.VersionReader.API.Controllers
         public async Task<ActionResult<RemoteCommandResult>> ValidateDirectory(
             [FromBody] RemoteDirectoryValidationRequest request)
         {
-            _logger.LogInformation("Validando directorio remoto: {Path} en {IP}",
-                request.RutaDirectorio, request.IpEquipo);
+            _logger.LogInformation("Validando directorio remoto: {Path} en {IP}", request.RutaDirectorio, request.IpEquipo);
 
             var resultado = await _validationService.ValidarDirectorioRemoto(
                 request.IpEquipo,
@@ -247,14 +178,7 @@ namespace F2X.VersionReader.API.Controllers
                 request.RutaDirectorio
             );
 
-            if (resultado.Success)
-            {
-                return Ok(resultado);
-            }
-            else
-            {
-                return BadRequest(resultado);
-            }
+            return Ok(resultado);
         }
 
         /// <summary>
@@ -273,6 +197,7 @@ namespace F2X.VersionReader.API.Controllers
             return Ok(resultado);
         }
 
+
         /// <summary>
         /// Buscar directorio por nombre en ubicaciones comunes
         /// </summary>
@@ -280,8 +205,7 @@ namespace F2X.VersionReader.API.Controllers
         public async Task<ActionResult<RemoteCommandResult>> SearchDirectoryByName(
             [FromBody] RemoteDirectorySearchRequest request)
         {
-            _logger.LogInformation("Buscando carpeta '{Name}' en {IP}",
-                request.NombreCarpeta, request.IpEquipo);
+            _logger.LogInformation("Buscando carpeta '{Name}' en {IP}", request.NombreCarpeta, request.IpEquipo);
 
             var resultado = await _validationService.BuscarDirectorioPorNombre(
                 request.IpEquipo,
@@ -290,21 +214,12 @@ namespace F2X.VersionReader.API.Controllers
                 request.NombreCarpeta
             );
 
-            if (resultado.Success)
-            {
-                return Ok(resultado);
-            }
-            else
-            {
-                return BadRequest(resultado);
-            }
+            return Ok(resultado);
         }
     }
 
-    // ═══════════════════════════════════════════════════
-    // MODELOS DE REQUEST
-    // ═══════════════════════════════════════════════════
 
+    // MODELOS DE REQUEST
     public class RemoteTestRequest
     {
         public string IpEquipo { get; set; } = string.Empty;

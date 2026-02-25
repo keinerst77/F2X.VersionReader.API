@@ -16,6 +16,30 @@ namespace F2X.VersionReader.API.Services
             _logger = logger;
         }
 
+        // Crear WSManConnectionInfo con Negotiate
+        private WSManConnectionInfo CrearConnectionInfo(string ipEquipo, PSCredential credential, int operationTimeout = 10000, int openTimeout = 10000)
+        {
+            var connectionInfo = new WSManConnectionInfo(
+                new Uri($"http://{ipEquipo}:5985/wsman"),
+                "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
+                credential
+            );
+            connectionInfo.AuthenticationMechanism = AuthenticationMechanism.Negotiate;
+            connectionInfo.OperationTimeout = operationTimeout;
+            connectionInfo.OpenTimeout = openTimeout;
+            return connectionInfo;
+        }
+
+
+        // Crear PSCredential desde string password
+        private PSCredential CrearCredencial(string usuario, string password)
+        {
+            var securePassword = new System.Security.SecureString();
+            foreach (char c in password)
+                securePassword.AppendChar(c);
+            return new PSCredential(usuario, securePassword);
+        }
+
         /// <summary>
         /// Ejecutar comando simple (hostname)
         /// </summary>
@@ -40,24 +64,9 @@ namespace F2X.VersionReader.API.Services
                 _logger.LogInformation("💻 Comando: hostname");
                 _logger.LogInformation("");
 
-                // Crear credenciales seguras
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
+                var credential = CrearCredencial(usuario, password);
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential);
 
-                var credential = new PSCredential(usuario, securePassword);
-
-                // Configurar conexión remota
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
-
-                connectionInfo.OperationTimeout = 10000;
-                connectionInfo.OpenTimeout = 10000;
-
-                // Conectar y ejecutar
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
                     _logger.LogInformation("⏳ Estableciendo conexión...");
@@ -80,7 +89,6 @@ namespace F2X.VersionReader.API.Services
                                 errores.Add(error.ToString());
                                 _logger.LogError("❌ Error: {Error}", error);
                             }
-
                             resultado.Success = false;
                             resultado.Output = string.Join("\n", errores);
                             resultado.ErrorMessage = "Error al ejecutar comando";
@@ -88,10 +96,8 @@ namespace F2X.VersionReader.API.Services
                         else
                         {
                             var output = resultados.FirstOrDefault()?.ToString() ?? "";
-
                             resultado.Success = true;
                             resultado.Output = output;
-
                             _logger.LogInformation("✅ Comando ejecutado exitosamente");
                             _logger.LogInformation("📋 Resultado: {Output}", output);
                         }
@@ -147,17 +153,8 @@ namespace F2X.VersionReader.API.Services
                 _logger.LogInformation("📁 Ruta: {Ruta}", rutaRemota);
                 _logger.LogInformation("");
 
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
-
-                var credential = new PSCredential(usuario, securePassword);
-
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
+                var credential = CrearCredencial(usuario, password);
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential);
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
@@ -166,7 +163,6 @@ namespace F2X.VersionReader.API.Services
                     using (PowerShell ps = PowerShell.Create())
                     {
                         ps.Runspace = runspace;
-
                         ps.AddCommand("Get-ChildItem")
                           .AddParameter("Path", rutaRemota)
                           .AddParameter("Filter", "*.exe");
@@ -177,9 +173,7 @@ namespace F2X.VersionReader.API.Services
                         {
                             var errores = new List<string>();
                             foreach (var error in ps.Streams.Error)
-                            {
                                 errores.Add(error.ToString());
-                            }
 
                             resultado.Success = false;
                             resultado.Output = string.Join("\n", errores);
@@ -195,10 +189,8 @@ namespace F2X.VersionReader.API.Services
                             }
 
                             resultado.Success = true;
-                            resultado.Output = $"Archivos encontrados: {archivos.Count}\n" +
-                                              string.Join("\n", archivos);
+                            resultado.Output = $"Archivos encontrados: {archivos.Count}\n" + string.Join("\n", archivos);
                             resultado.Data = archivos;
-
                             _logger.LogInformation("✅ Total archivos: {Count}", archivos.Count);
                         }
                     }
@@ -206,6 +198,15 @@ namespace F2X.VersionReader.API.Services
 
                 _logger.LogInformation("═══════════════════════════════════════════════");
                 _logger.LogInformation("");
+            }
+            catch (PSRemotingTransportException ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = "Error de autenticación o conexión";
+                resultado.Output = ex.Message;
+                _logger.LogError(ex, "❌ Error de conexión remota");
+                resultado.Sugerencias.Add("• Verificar usuario y contraseña");
+                resultado.Sugerencias.Add("• Verificar que WinRM está habilitado en el equipo remoto");
             }
             catch (Exception ex)
             {
@@ -218,7 +219,7 @@ namespace F2X.VersionReader.API.Services
         }
 
         /// <summary>
-        /// Ejecutar script (obtener info del sistema)
+        /// Ejecutar script complejo (info del sistema)
         /// </summary>
         public async Task<RemoteCommandResult> TestScriptComplejo(
             string ipEquipo,
@@ -237,17 +238,8 @@ namespace F2X.VersionReader.API.Services
                 _logger.LogInformation("🔍 PRUEBA 3: Script Complejo");
                 _logger.LogInformation("═══════════════════════════════════════════════");
 
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
-
-                var credential = new PSCredential(usuario, securePassword);
-
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
+                var credential = CrearCredencial(usuario, password);
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential);
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
@@ -257,36 +249,31 @@ namespace F2X.VersionReader.API.Services
                     {
                         ps.Runspace = runspace;
 
-                        // Script que obtiene información del sistema
                         string script = @"
                             $info = @{
-                                'NombreEquipo' = $env:COMPUTERNAME
+                                'NombreEquipo'     = $env:COMPUTERNAME
                                 'SistemaOperativo' = (Get-CimInstance Win32_OperatingSystem).Caption
-                                'Version' = (Get-CimInstance Win32_OperatingSystem).Version
-                                'Arquitectura' = $env:PROCESSOR_ARCHITECTURE
-                                'RAM_GB' = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-                                'Fabricante' = (Get-CimInstance Win32_ComputerSystem).Manufacturer
+                                'Version'          = (Get-CimInstance Win32_OperatingSystem).Version
+                                'Arquitectura'     = $env:PROCESSOR_ARCHITECTURE
+                                'RAM_GB'           = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+                                'Fabricante'       = (Get-CimInstance Win32_ComputerSystem).Manufacturer
                             }
                             $info | ConvertTo-Json
                         ";
 
                         ps.AddScript(script);
-
                         var resultados = await Task.Run(() => ps.Invoke());
 
                         if (ps.HadErrors)
                         {
                             resultado.Success = false;
-                            var errores = ps.Streams.Error.Select(e => e.ToString()).ToList();
-                            resultado.Output = string.Join("\n", errores);
+                            resultado.Output = string.Join("\n", ps.Streams.Error.Select(e => e.ToString()));
                         }
                         else
                         {
                             var output = resultados.FirstOrDefault()?.ToString() ?? "";
-
                             resultado.Success = true;
                             resultado.Output = output;
-
                             _logger.LogInformation("✅ Información del sistema:");
                             _logger.LogInformation("{Info}", output);
                         }
@@ -294,6 +281,15 @@ namespace F2X.VersionReader.API.Services
                 }
 
                 _logger.LogInformation("═══════════════════════════════════════════════");
+            }
+            catch (PSRemotingTransportException ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = "Error de autenticación o conexión";
+                resultado.Output = ex.Message;
+                _logger.LogError(ex, "❌ Error de conexión remota");
+                resultado.Sugerencias.Add("• Verificar usuario y contraseña");
+                resultado.Sugerencias.Add("• Verificar que WinRM está habilitado en el equipo remoto");
             }
             catch (Exception ex)
             {
@@ -303,10 +299,7 @@ namespace F2X.VersionReader.API.Services
             }
 
             return resultado;
-
-
         }
-
 
         /// <summary>
         /// Validar si un directorio existe en el equipo remoto
@@ -332,20 +325,8 @@ namespace F2X.VersionReader.API.Services
                 _logger.LogInformation("📁 Ruta: {Ruta}", rutaDirectorio);
                 _logger.LogInformation("");
 
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
-
-                var credential = new PSCredential(usuario, securePassword);
-
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
-
-                connectionInfo.OperationTimeout = 10000;
-                connectionInfo.OpenTimeout = 10000;
+                var credential = CrearCredencial(usuario, password);
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential);
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
@@ -357,29 +338,25 @@ namespace F2X.VersionReader.API.Services
                     {
                         ps.Runspace = runspace;
 
-                        // Script para validar si el directorio existe
                         string script = $@"
-                    $exists = Test-Path -Path '{rutaDirectorio}' -PathType Container
-                    
-                    if ($exists) {{
-                        $itemCount = (Get-ChildItem -Path '{rutaDirectorio}' -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
-                        
-                        return @{{
-                            Exists = $true
-                            Path = '{rutaDirectorio}'
-                            ExeCount = $itemCount
-                        }} | ConvertTo-Json
-                    }} else {{
-                        return @{{
-                            Exists = $false
-                            Path = '{rutaDirectorio}'
-                            ExeCount = 0
-                        }} | ConvertTo-Json
-                    }}
-                ";
+                            $exists = Test-Path -Path '{rutaDirectorio}' -PathType Container
+                            if ($exists) {{
+                                $itemCount = (Get-ChildItem -Path '{rutaDirectorio}' -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+                                return @{{
+                                    Exists   = $true
+                                    Path     = '{rutaDirectorio}'
+                                    ExeCount = $itemCount
+                                }} | ConvertTo-Json
+                            }} else {{
+                                return @{{
+                                    Exists   = $false
+                                    Path     = '{rutaDirectorio}'
+                                    ExeCount = 0
+                                }} | ConvertTo-Json
+                            }}
+                        ";
 
                         ps.AddScript(script);
-
                         _logger.LogInformation("⏳ Validando directorio...");
                         var resultados = await Task.Run(() => ps.Invoke());
 
@@ -391,7 +368,6 @@ namespace F2X.VersionReader.API.Services
                                 errores.Add(error.ToString());
                                 _logger.LogError("❌ Error: {Error}", error);
                             }
-
                             resultado.Success = false;
                             resultado.Output = string.Join("\n", errores);
                             resultado.ErrorMessage = "Error al validar directorio";
@@ -399,11 +375,9 @@ namespace F2X.VersionReader.API.Services
                         else
                         {
                             var output = resultados.FirstOrDefault()?.ToString() ?? "";
-
                             resultado.Success = true;
                             resultado.Output = output;
 
-                            // Intentar parsear el JSON para determinar si existe
                             try
                             {
                                 var jsonDoc = System.Text.Json.JsonDocument.Parse(output);
@@ -439,7 +413,6 @@ namespace F2X.VersionReader.API.Services
                 resultado.ErrorMessage = "Error de autenticación o conexión";
                 resultado.Output = ex.Message;
                 _logger.LogError(ex, "❌ Error de conexión remota");
-
                 resultado.Sugerencias.Add("• Verificar usuario y contraseña");
                 resultado.Sugerencias.Add("• Verificar que WinRM está habilitado");
             }
@@ -473,20 +446,9 @@ namespace F2X.VersionReader.API.Services
             {
                 _logger.LogInformation("🔍 Buscando carpeta '{Nombre}' en equipo remoto: {IP}", nombreCarpeta, ipEquipo);
 
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
-
-                var credential = new PSCredential(usuario, securePassword);
-
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
-
-                connectionInfo.OperationTimeout = 30000; // 30 segundos para búsqueda
-                connectionInfo.OpenTimeout = 10000;
+                var credential = CrearCredencial(usuario, password);
+                // 30 segundos para búsqueda recursiva
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential, operationTimeout: 30000);
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
@@ -496,55 +458,52 @@ namespace F2X.VersionReader.API.Services
                     {
                         ps.Runspace = runspace;
 
-                        // Script para buscar en ubicaciones comunes
                         string script = $@"
-                    $folderName = '{nombreCarpeta}'
-                    $searchPaths = @(
-                        ""$env:USERPROFILE\Desktop"",
-                        ""$env:USERPROFILE\Documents"",
-                        ""$env:USERPROFILE\Downloads"",
-                        ""C:\"",
-                        ""D:\""
-                    )
+                            $folderName  = '{nombreCarpeta}'
+                            $searchPaths = @(
+                                ""$env:USERPROFILE\Desktop"",
+                                ""$env:USERPROFILE\Documents"",
+                                ""$env:USERPROFILE\Downloads"",
+                                ""C:\"",
+                                ""D:\""
+                            )
 
-                    $found = $null
-                    foreach ($basePath in $searchPaths) {{
-                        if (Test-Path $basePath) {{
-                            $fullPath = Join-Path $basePath $folderName
-                            if (Test-Path -Path $fullPath -PathType Container) {{
-                                $itemCount = (Get-ChildItem -Path $fullPath -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
-                                $found = @{{
-                                    Exists = $true
-                                    Path = $fullPath
-                                    ExeCount = $itemCount
-                                    SearchedIn = $basePath
+                            $found = $null
+                            foreach ($basePath in $searchPaths) {{
+                                if (Test-Path $basePath) {{
+                                    $fullPath = Join-Path $basePath $folderName
+                                    if (Test-Path -Path $fullPath -PathType Container) {{
+                                        $itemCount = (Get-ChildItem -Path $fullPath -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+                                        $found = @{{
+                                            Exists     = $true
+                                            Path       = $fullPath
+                                            ExeCount   = $itemCount
+                                            SearchedIn = $basePath
+                                        }}
+                                        break
+                                    }}
                                 }}
-                                break
                             }}
-                        }}
-                    }}
 
-                    if ($found) {{
-                        return $found | ConvertTo-Json
-                    }} else {{
-                        return @{{
-                            Exists = $false
-                            Path = $folderName
-                            ExeCount = 0
-                            SearchedPaths = $searchPaths -join '; '
-                        }} | ConvertTo-Json
-                    }}
-                ";
+                            if ($found) {{
+                                return $found | ConvertTo-Json
+                            }} else {{
+                                return @{{
+                                    Exists       = $false
+                                    Path         = $folderName
+                                    ExeCount     = 0
+                                    SearchedPaths = $searchPaths -join '; '
+                                }} | ConvertTo-Json
+                            }}
+                        ";
 
                         ps.AddScript(script);
-
                         var resultados = await Task.Run(() => ps.Invoke());
 
                         if (ps.HadErrors)
                         {
                             resultado.Success = false;
-                            var errores = ps.Streams.Error.Select(e => e.ToString()).ToList();
-                            resultado.Output = string.Join("\n", errores);
+                            resultado.Output = string.Join("\n", ps.Streams.Error.Select(e => e.ToString()));
                             resultado.ErrorMessage = "Error al buscar directorio";
                         }
                         else
@@ -552,11 +511,19 @@ namespace F2X.VersionReader.API.Services
                             var output = resultados.FirstOrDefault()?.ToString() ?? "";
                             resultado.Success = true;
                             resultado.Output = output;
-
                             _logger.LogInformation("✅ Búsqueda completada: {Output}", output);
                         }
                     }
                 }
+            }
+            catch (PSRemotingTransportException ex)
+            {
+                resultado.Success = false;
+                resultado.ErrorMessage = "Error de autenticación o conexión";
+                resultado.Output = ex.Message;
+                _logger.LogError(ex, "❌ Error de conexión remota");
+                resultado.Sugerencias.Add("• Verificar usuario y contraseña");
+                resultado.Sugerencias.Add("• Verificar que WinRM está habilitado en el equipo remoto");
             }
             catch (Exception ex)
             {
@@ -569,10 +536,7 @@ namespace F2X.VersionReader.API.Services
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
     // MODELOS
-    // ═══════════════════════════════════════════════════════════
-
     public class RemoteCommandResult
     {
         public bool Success { get; set; }

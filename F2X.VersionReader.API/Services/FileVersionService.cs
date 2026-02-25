@@ -17,7 +17,32 @@ namespace F2X.VersionReader.API.Services
             _logger = logger;
         }
 
-      
+
+
+        // Crear PSCredential desde string password
+        private PSCredential CrearCredencial(string usuario, string password)
+        {
+            var securePassword = new System.Security.SecureString();
+            foreach (char c in password)
+                securePassword.AppendChar(c);
+            return new PSCredential(usuario, securePassword);
+        }
+
+
+        // Crear WSManConnectionInfo con Negotiate
+        private WSManConnectionInfo CrearConnectionInfo(string ipEquipo, PSCredential credential, int operationTimeout = 60000, int openTimeout = 10000)
+        {
+            var connectionInfo = new WSManConnectionInfo(
+                new Uri($"http://{ipEquipo}:5985/wsman"),
+                "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
+                credential
+            );
+            connectionInfo.AuthenticationMechanism = AuthenticationMechanism.Negotiate;
+            connectionInfo.OperationTimeout = operationTimeout;
+            connectionInfo.OpenTimeout = openTimeout;
+            return connectionInfo;
+        }
+
         private string FormatFileSizeWindows(long bytes)
         {
             if (bytes < 1024)
@@ -27,17 +52,13 @@ namespace F2X.VersionReader.API.Services
             const long MB = 1024L * 1024L;
             const long GB = 1024L * 1024L * 1024L;
 
-            
             long kib = bytes / KB;
 
             if (bytes < MB)
             {
-                // KB 
                 double kb = (double)bytes / KB;
                 if (kb < 10)
                 {
-                    long x100 = (kib * 100L); 
-                   
                     long num = (bytes * 100L) / KB;
                     return $"{num / 100},{num % 100:D2} KB";
                 }
@@ -51,29 +72,23 @@ namespace F2X.VersionReader.API.Services
 
             if (bytes < GB)
             {
-                // MB
                 long x1 = kib / 1024L;
                 long x10 = (kib * 10L) / 1024L;
                 long x100 = (kib * 100L) / 1024L;
 
-                if (x1 < 10)
-                    return $"{x100 / 100},{x100 % 100:D2} MB";
-                if (x1 < 100)
-                    return $"{x10 / 10},{x10 % 10} MB";
+                if (x1 < 10) return $"{x100 / 100},{x100 % 100:D2} MB";
+                if (x1 < 100) return $"{x10 / 10},{x10 % 10} MB";
                 return $"{x1} MB";
             }
 
             {
-                // GB 
                 long mib = kib / 1024L;
                 long x1 = mib / 1024L;
                 long x10 = (mib * 10L) / 1024L;
                 long x100 = (mib * 100L) / 1024L;
 
-                if (x1 < 10)
-                    return $"{x100 / 100},{x100 % 100:D2} GB";
-                if (x1 < 100)
-                    return $"{x10 / 10},{x10 % 10} GB";
+                if (x1 < 10) return $"{x100 / 100},{x100 % 100:D2} GB";
+                if (x1 < 100) return $"{x10 / 10},{x10 % 10} GB";
                 return $"{x1} GB";
             }
         }
@@ -151,10 +166,7 @@ namespace F2X.VersionReader.API.Services
         public async Task<ScanResponse> ScanDirectoryAsync(ScanRequest request)
         {
             var stopwatch = Stopwatch.StartNew();
-            var response = new ScanResponse
-            {
-                Directory = request.Directory
-            };
+            var response = new ScanResponse { Directory = request.Directory };
 
             try
             {
@@ -200,10 +212,7 @@ namespace F2X.VersionReader.API.Services
 
                 _logger.LogInformation("Encontrados {Count} archivos totales", allFiles.Count);
 
-                var tasks = allFiles.Select(filePath =>
-                    Task.Run(() => GetFileInfo(filePath, request.Directory)
-                ));
-
+                var tasks = allFiles.Select(filePath => Task.Run(() => GetFileInfo(filePath, request.Directory)));
                 var fileInfos = await Task.WhenAll(tasks);
 
                 response.Files = fileInfos
@@ -212,7 +221,6 @@ namespace F2X.VersionReader.API.Services
                     .ToList()!;
 
                 stopwatch.Stop();
-
                 response.Success = true;
                 response.TotalFiles = response.Files.Count;
                 response.ScanTimeMs = stopwatch.ElapsedMilliseconds;
@@ -260,23 +268,10 @@ namespace F2X.VersionReader.API.Services
 
             try
             {
-                _logger.LogInformation("🌐 ESCANEO REMOTO - Equipo: {IP} - Ruta: {Ruta}",
-                    ipEquipo, rutaRemota);
+                _logger.LogInformation("🌐 ESCANEO REMOTO - Equipo: {IP} - Ruta: {Ruta}", ipEquipo, rutaRemota);
 
-                var securePassword = new System.Security.SecureString();
-                foreach (char c in password)
-                    securePassword.AppendChar(c);
-
-                var credential = new PSCredential(usuario, securePassword);
-
-                var connectionInfo = new WSManConnectionInfo(
-                    new Uri($"http://{ipEquipo}:5985/wsman"),
-                    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
-                    credential
-                );
-
-                connectionInfo.OperationTimeout = 60000;
-                connectionInfo.OpenTimeout = 10000;
+                var credential = CrearCredencial(usuario, password);
+                var connectionInfo = CrearConnectionInfo(ipEquipo, credential, operationTimeout: 60000);
 
                 using (Runspace runspace = RunspaceFactory.CreateRunspace(connectionInfo))
                 {
@@ -288,7 +283,6 @@ namespace F2X.VersionReader.API.Services
 
                         string recurseValue = includeSubdirectories ? "$true" : "$false";
 
-                
                         string script = $@"
                         $files = Get-ChildItem -Path '{rutaRemota}' -Filter '{searchPattern}' -Recurse:{recurseValue} -File -ErrorAction SilentlyContinue
 
@@ -297,14 +291,13 @@ namespace F2X.VersionReader.API.Services
                         foreach ($file in $files) {{
                             try {{
                                 $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName)
-                                $sizeBytes = $file.Length
+                                $sizeBytes   = $file.Length
                                 $sizeDisplay = """"
 
                                 if ($sizeBytes -lt 1024) {{
                                     $sizeDisplay = ""$sizeBytes bytes""
                                 }}
                                 elseif ($sizeBytes -lt 1048576) {{
-                                    # KB range — aritmética entera desde bytes
                                     $kib = [long]($sizeBytes / 1024)
                                     if (($sizeBytes / 1024.0) -lt 10) {{
                                         $num = [long](($sizeBytes * 100) / 1024)
@@ -319,11 +312,10 @@ namespace F2X.VersionReader.API.Services
                                     }}
                                 }}
                                 elseif ($sizeBytes -lt 1073741824) {{
-                                    # MB range — aritmética entera pura desde KiB
-                                    $kib   = [long]($sizeBytes / 1024)
-                                    $x1    = [long]($kib / 1024)
-                                    $x10   = [long](($kib * 10) / 1024)
-                                    $x100  = [long](($kib * 100) / 1024)
+                                    $kib  = [long]($sizeBytes / 1024)
+                                    $x1   = [long]($kib / 1024)
+                                    $x10  = [long](($kib * 10) / 1024)
+                                    $x100 = [long](($kib * 100) / 1024)
                                     if ($x1 -lt 10) {{
                                         $sizeDisplay = ""$([Math]::Floor($x100 / 100)),$($x100 % 100 | ForEach-Object {{ $_.ToString('D2') }}) MB""
                                     }}
@@ -335,12 +327,11 @@ namespace F2X.VersionReader.API.Services
                                     }}
                                 }}
                                 else {{
-                                    # GB range — aritmética entera pura desde MiB
-                                    $kib   = [long]($sizeBytes / 1024)
-                                    $mib   = [long]($kib / 1024)
-                                    $x1    = [long]($mib / 1024)
-                                    $x10   = [long](($mib * 10) / 1024)
-                                    $x100  = [long](($mib * 100) / 1024)
+                                    $kib  = [long]($sizeBytes / 1024)
+                                    $mib  = [long]($kib / 1024)
+                                    $x1   = [long]($mib / 1024)
+                                    $x10  = [long](($mib * 10) / 1024)
+                                    $x100 = [long](($mib * 100) / 1024)
                                     if ($x1 -lt 10) {{
                                         $sizeDisplay = ""$([Math]::Floor($x100 / 100)),$($x100 % 100 | ForEach-Object {{ $_.ToString('D2') }}) GB""
                                     }}
@@ -353,19 +344,19 @@ namespace F2X.VersionReader.API.Services
                                 }}
 
                                 $results += [PSCustomObject]@{{
-                                    Name = $file.Name
-                                    FullPath = $file.FullName
-                                    RelativePath = $file.FullName.Replace('{rutaRemota}', '').TrimStart('\')
-                                    SizeBytes = $file.Length
-                                    SizeDisplay = $sizeDisplay
-                                    LastModified = $file.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')
-                                    FileMajorPart = $versionInfo.FileMajorPart
-                                    FileMinorPart = $versionInfo.FileMinorPart
-                                    FileBuildPart = $versionInfo.FileBuildPart
+                                    Name           = $file.Name
+                                    FullPath       = $file.FullName
+                                    RelativePath   = $file.FullName.Replace('{rutaRemota}', '').TrimStart('\')
+                                    SizeBytes      = $file.Length
+                                    SizeDisplay    = $sizeDisplay
+                                    LastModified   = $file.LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')
+                                    FileMajorPart  = $versionInfo.FileMajorPart
+                                    FileMinorPart  = $versionInfo.FileMinorPart
+                                    FileBuildPart  = $versionInfo.FileBuildPart
                                     FilePrivatePart = $versionInfo.FilePrivatePart
                                     FileDescription = $versionInfo.FileDescription
-                                    CompanyName = $versionInfo.CompanyName
-                                    ProductName = $versionInfo.ProductName
+                                    CompanyName    = $versionInfo.CompanyName
+                                    ProductName    = $versionInfo.ProductName
                                 }}
                             }}
                             catch {{
@@ -377,7 +368,6 @@ namespace F2X.VersionReader.API.Services
                         ";
 
                         ps.AddScript(script);
-
                         var resultados = await Task.Run(() => ps.Invoke());
 
                         if (ps.HadErrors)
@@ -498,7 +488,6 @@ namespace F2X.VersionReader.API.Services
                 return prop.ValueKind == System.Text.Json.JsonValueKind.String
                     ? prop.GetString() ?? string.Empty
                     : string.Empty;
-
             return string.Empty;
         }
 
@@ -508,7 +497,6 @@ namespace F2X.VersionReader.API.Services
                 return prop.ValueKind == System.Text.Json.JsonValueKind.Number
                     ? prop.GetInt32()
                     : 0;
-
             return 0;
         }
 
@@ -518,7 +506,6 @@ namespace F2X.VersionReader.API.Services
                 return prop.ValueKind == System.Text.Json.JsonValueKind.Number
                     ? prop.GetInt64()
                     : 0L;
-
             return 0L;
         }
 
@@ -528,15 +515,11 @@ namespace F2X.VersionReader.API.Services
             {
                 var fileInfo = new FileInfo(filePath);
                 var versionInfo = FileVersionInfo.GetVersionInfo(filePath);
-
                 var sizeDisplay = FormatFileSizeWindows(fileInfo.Length);
-
                 var relativePath = Path.GetRelativePath(baseDirectory, filePath);
-
                 var version = $"{versionInfo.FileMajorPart}.{versionInfo.FileMinorPart}.{versionInfo.FileBuildPart}.{versionInfo.FilePrivatePart}";
 
-                _logger.LogInformation("📄 {FileName} - v{Version} - {Size}",
-                    fileInfo.Name, version, sizeDisplay);
+                _logger.LogInformation("📄 {FileName} - v{Version} - {Size}", fileInfo.Name, version, sizeDisplay);
 
                 return new ExeFileInfo
                 {
