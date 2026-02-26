@@ -2,13 +2,10 @@
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configurar Kestrel para usar puerto 7001
+// Configurar Kestrel para usar puerto 7001 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenLocalhost(7001, listenOptions =>  
-    {
-        listenOptions.UseHttps();
-    });
+    options.ListenLocalhost(7001);
 });
 
 // Agregar servicios al contenedor
@@ -25,9 +22,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy.SetIsOriginAllowed(origin => true)
-        .AllowAnyMethod()
-        .AllowAnyHeader()
-        .AllowCredentials();
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -40,16 +37,15 @@ var app = builder.Build();
 
 // Middleware
 app.UseCors("AllowFrontend");
-app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
 // Mensaje de inicio
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("🚀 F2X Version Reader API iniciada");
-logger.LogInformation("🔍 Health check: https://localhost:7000/api/versionscanner/health");
-logger.LogInformation("🔍 Endpoint de escaneo: https://localhost:7000/api/versionscanner/scan");
-logger.LogInformation("🔍 Endpoint multi-equipo: https://localhost:7000/api/multiequiposcan/scan");
+logger.LogInformation("🔍 Health check:      http://localhost:7001/api/versionscanner/health");
+logger.LogInformation("🔍 Escaneo local:     http://localhost:7001/api/versionscanner/scan");
+logger.LogInformation("🔍 Multi-equipo:      http://localhost:7001/api/multiequiposcan/scan");
 logger.LogInformation("✅ Backend listo para recibir peticiones del frontend");
 
 app.Run();
